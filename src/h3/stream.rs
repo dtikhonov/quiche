@@ -233,9 +233,9 @@ impl Stream {
             self.next_varint_len = 0;
 
             // If processing push, progress the state machine appropriately.
-            if self.state == State::PushId {
-                self.state = State::FrameTypeLen;
-            }
+            // if self.state == State::PushId {
+            // self.state = State::FrameTypeLen;
+            // }
 
             return Ok(varint);
         }

@@ -87,6 +87,8 @@ fn main() {
 
     let mut config = quiche::Config::new(version).unwrap();
 
+    let mut req_stream_id = None;
+
     config.verify_peer(true);
 
     config
@@ -205,9 +207,15 @@ fn main() {
 
             info!("{} sending HTTP request {:?}", conn.trace_id(), req);
 
-            if let Err(e) = h3_conn.send_request(&mut conn, &req, true) {
-                error!("{} failed to send request {:?}", conn.trace_id(), e);
-                break;
+            match h3_conn.send_request(&mut conn, &req, true) {
+                Ok(s) => {
+                    req_stream_id = Some(s);
+                },
+
+                Err(e) => {
+                    error!("{} failed to send request {:?}", conn.trace_id(), e);
+                    break;
+                },
             }
 
             http3_conn = Some(h3_conn);
@@ -225,6 +233,19 @@ fn main() {
                         );
                     },
 
+                    Ok((
+                        stream_id,
+                        quiche::h3::Event::PushPromise(push_id, headers),
+                    )) => {
+                        info!(
+                            "{} got push headers {:?} for push id {} on stream id {}",
+                            conn.trace_id(),
+                            headers,
+                            push_id,
+                            stream_id
+                        );
+                    },
+
                     Ok((stream_id, quiche::h3::Event::Data(data))) => {
                         debug!(
                             "{} got response data of length {} in stream id {}",
@@ -238,20 +259,23 @@ fn main() {
                         });
                     },
 
-                    Ok((_stream_id, quiche::h3::Event::Finished)) => {
-                        info!(
-                            "{} response received in {:?}, closing...",
-                            conn.trace_id(),
-                            req_start.elapsed()
-                        );
+                    Ok((stream_id, quiche::h3::Event::Finished)) => {
+                        trace!("stream id {} finished!", stream_id);
+                        if stream_id == req_stream_id.unwrap() {
+                            info!(
+                                "{} response received in {:?}, closing...",
+                                conn.trace_id(),
+                                req_start.elapsed()
+                            );
 
-                        match conn.close(true, 0x00, b"kthxbye") {
-                            // Already closed.
-                            Ok(_) | Err(quiche::Error::Done) => (),
+                            /*match conn.close(true, 0x00, b"kthxbye") {
+                                // Already closed.
+                                Ok(_) | Err(quiche::Error::Done) => (),
 
-                            Err(e) => panic!("error closing conn: {:?}", e),
+                                Err(e) => panic!("error closing conn: {:?}", e),
+                            }
+                            break;*/
                         }
-                        break;
                     },
 
                     Err(quiche::h3::Error::Done) => {
